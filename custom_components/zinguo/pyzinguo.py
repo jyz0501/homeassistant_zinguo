@@ -51,8 +51,8 @@ class ZinguoSwitchB2():
     def login(self):
         url = 'http://114.55.66.106:8002/api/v1/customer/login'
         headers = {'User-Agent': 'okhttp/3.6.0',
-                'Content-Type': 'aplication/json;charset=UTF-8',
-                'x-access-token': 'null'
+                'Content-Type': 'text/plain;charset=UTF-8',
+                'x-access-token': 'z-mYA09hZzegEq8FwSqL0LlRTB6SZyCvVthZJO05iX7biPWQxNSsBEOTbd0OGFI3'
                 }
         sha1 = hashlib.sha1()
         sha1.update(self.password.encode('utf-8'))
@@ -68,7 +68,7 @@ class ZinguoSwitchB2():
             _LOGGER.debug('ZINGUO : except')
             return False
 
-        json_data = json.loads(r.text)
+        json_data = r.json()
         self.token = json_data['token']
         self.mac = json_data['deviceIds'][0]['mac']
 
@@ -93,7 +93,7 @@ class ZinguoSwitchB2():
             _LOGGER.debug('ZINGUO : except')
             return False
 
-        json_data = json.loads(r.text)
+        json_data = r.json()
 
         _LOGGER.debug('ZINGUO : get status4')
         if json_data != None:
@@ -165,7 +165,7 @@ class ZinguoSwitchB2():
             _LOGGER.debug('ZINGUO : except')
             return False
 
-        json_data = json.loads(r.text)
+        json_data = r.json()
         result = json_data['result']
         if requests != "设置成功":
             return True
