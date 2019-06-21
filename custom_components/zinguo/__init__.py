@@ -71,7 +71,7 @@ class ZinguoUpdateManager(threading.Thread):
         while self._run:
             self.zinguo_update()
             _LOGGER.debug('ZINGUO : loop')
-            time.sleep(1)
+            time.sleep(2)
 
     def start_keep_alive(self):
         """Start keep alive mechanism."""
@@ -86,12 +86,13 @@ class ZinguoUpdateManager(threading.Thread):
             self.join()
 
     def zinguo_update(self):
-        _LOGGER.debug('ZINGUO : update0')
+        _LOGGER.debug('ZINGUO : zinguo_update')
         eventMsg = {}
         eventSensorMsg = {}
 
-        _LOGGER.debug('ZINGUO : update')
-        self._zinguoSwitch.get_status()
+        success = self._zinguoSwitch.get_status()
+        if not success:
+            return
         self._zinguoSwitch.get_state_change()
         eventSensorMsg[CONF_TEMPERATURE] = self._zinguoSwitch.temperatureState
         _LOGGER.debug('ZINGUO : sensor msg:%s', json.dumps(eventSensorMsg))

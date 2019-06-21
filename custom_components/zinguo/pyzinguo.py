@@ -44,7 +44,6 @@ class ZinguoSwitchB2():
 
         self.temperatureState = '0'
 
-        _LOGGER.debug('ZINGUO : b2 init')
         self.login()
 
 
@@ -61,11 +60,9 @@ class ZinguoSwitchB2():
 
         try:
             r= requests.post(url, json=data, headers=headers, timeout = 2)
-        except requests.exceptions.ConnectionError:
-            _LOGGER.debug('ZINGUO : ConnectionError')
-            return False
-        except:
-            _LOGGER.debug('ZINGUO : except')
+        except Exception as e:
+            _LOGGER.debug('ZINGUO : login Exception')
+            _LOGGER.debug('ZINGUO : except'+str(e))
             return False
 
         json_data = r.json()
@@ -75,28 +72,24 @@ class ZinguoSwitchB2():
         return True
 
     def get_status(self):
-        _LOGGER.debug('ZINGUO : get status1')
-        url="http://114.55.66.106:8002/api/v1/device/getDeviceByMac?mac=" + self.mac
-        _LOGGER.debug('ZINGUO : get status2')
-        headers = {'User-Agent': 'okhttp/3.6.0',
-                'Content-Type': 'aplication/json;charset=UTF-8',
-                'x-access-token': self.token
-                }
-        _LOGGER.debug('ZINGUO : get status3')
+        _LOGGER.debug('ZINGUO : get_status')
 
         try:
+            url="http://114.55.66.106:8002/api/v1/device/getDeviceByMac?mac=" + self.mac
+            headers = {'User-Agent': 'okhttp/3.6.0',
+                     'Content-Type': 'aplication/json;charset=UTF-8',
+                   'x-access-token': self.token
+                    }
             r = requests.get(url,headers=headers, timeout = 2)
-        except requests.exceptions.ConnectionError:
-            _LOGGER.debug('ZINGUO : ConnectionError')
+        except Exception as e:
+            _LOGGER.debug('ZINGUO : get_status Exception')
+            _LOGGER.debug('ZINGUO : '+str(e))
             return False
-        except:
-            _LOGGER.debug('ZINGUO : except')
-            return False
+
 
         json_data = r.json()
 
-        _LOGGER.debug('ZINGUO : get status4')
-        if json_data != None:
+        try:
             self.warmingSwitch1StateOld = self.warmingSwitch1StateNew
             self.warmingSwitch2StateOld = self.warmingSwitch2StateNew
             self.windSwitchStateOld = self.windSwitchStateNew
@@ -111,9 +104,42 @@ class ZinguoSwitchB2():
 
             self.temperatureState = json_data[CONF_TEMPERATURE]#温度
             return True
-        else:
-            _LOGGER.debug('ZINGUO : json data is null')
+        except Exception as e:
+            _LOGGER.debug('ZINGUO : json data Exception')
+            _LOGGER.debug('ZINGUO : json data '+str(e)+':'+str(json_data))
             return False
+
+    def set_old_state(self,switchName):
+        if switchName == CONF_LIGHT_SWITCH:
+            if self.lightSwitchStateOld == CONF_ON:
+                self.lightSwitchStateOld = CONF_OFF
+            elif self.lightSwitchStateOld == CONF_OFF:
+                self.lightSwitchStateOld = CONF_ON
+
+        if switchName == CONF_WIND_SWITCH:
+            if self.windSwitchStateOld == CONF_ON:
+                self.windSwitchStateOld = CONF_OFF
+            elif self.windSwitchStateOld == CONF_OFF:
+                self.windSwitchStateOld = CONF_ON
+
+        if switchName == CONF_VENTILATION_SWITCH:
+            if self.ventilationSwitchStateOld == CONF_ON:
+                self.ventilationSwitchStateOld = CONF_OFF
+            elif self.ventilationSwitchStateOld == CONF_OFF:
+                self.ventilationSwitchStateOld = CONF_ON
+
+        if switchName == CONF_WARMING_SWITCH_1:
+            if self.warmingSwitch1StateOld == CONF_ON:
+                self.warmingSwitch1StateOld = CONF_OFF
+            elif self.warmingSwitch1StateOld == CONF_OFF:
+                self.warmingSwitch1StateOld = CONF_ON
+
+        if switchName == CONF_WARMING_SWITCH_2:
+            if self.warmingSwitch2StateOld == CONF_ON:
+                self.warmingSwitch2StateOld = CONF_OFF
+            elif self.warmingSwitch2StateOld == CONF_OFF:
+                self.warmingSwitch2StateOld = CONF_ON
+
 
 
 
@@ -158,18 +184,20 @@ class ZinguoSwitchB2():
 
         try:
             r = requests.put(url, json=data, headers=headers, timeout = 2)
-        except requests.exceptions.ConnectionError:
-            _LOGGER.debug('ZINGUO : ConnectionError')
-            return False
-        except:
-            _LOGGER.debug('ZINGUO : except')
+        except Exception as e:
+            _LOGGER.debug('ZINGUO toggle_zinguo_switch Exception')
+            _LOGGER.debug('ZINGUO toggle_zinguo_switch'+str(e))
             return False
 
+
         json_data = r.json()
-        result = json_data['result']
-        if requests != "设置成功":
-            return True
-        else:
+        try:
+            result = json_data['result']
+            if result != "设置成功":
+                self.set_old_state(switchName)
+                return True
+        except Exception as e:
+            _LOGGER.debug('ZINGUO toggle_zinguo_switch return:'+str(e))
             return False
 
 ############################################################################################
