@@ -11,9 +11,12 @@ from custom_components.zinguo.pyzinguo import *
 import requests
 
 from homeassistant.const import (
-              EVENT_HOMEASSISTANT_START, EVENT_HOMEASSISTANT_STOP)
+    EVENT_HOMEASSISTANT_START, EVENT_HOMEASSISTANT_STOP
+)
 import homeassistant.helpers.config_validation as cv
-from homeassistant.const import (CONF_NAME, CONF_MAC, CONF_TOKEN, CONF_USERNAME, CONF_PASSWORD, ATTR_NAME)
+from homeassistant.const import (
+    CONF_NAME, CONF_MAC, CONF_TOKEN, CONF_USERNAME, CONF_PASSWORD, ATTR_NAME
+)
 from custom_components.zinguo.const import *
 
 try:
@@ -30,48 +33,42 @@ COMPONENT_TYPES = ('switch')
 
 _LOGGER = logging.getLogger(__name__)
 
-
-
-
 def setup(hass, config):
     """ Setup the ZINGUO platform """
 
     _LOGGER.debug('ZINGUO : Starting')
 
-    hass.data[ZINGUO_UPDATE_MANAGER] = ZinguoUpdateManager(hass = hass, config = config)
+    hass.data[ZINGUO_UPDATE_MANAGER] = ZinguoUpdateManager(hass=hass, config=config)
 
     def start_zinguo_update_keep_alive(event):
         hass.data[ZINGUO_UPDATE_MANAGER].start_keep_alive()
 
     def stop_zinguo_update_keep_alive(event):
         hass.data[ZINGUO_UPDATE_MANAGER].stop_keep_alive()
+
     def toggle_zinguo_switch(call):
         hass.data[ZINGUO_UPDATE_MANAGER]._zinguoSwitch.toggle_zinguo_switch(call.data.get(ATTR_NAME))
 
     hass.bus.listen_once(EVENT_HOMEASSISTANT_START, start_zinguo_update_keep_alive)
     hass.bus.listen_once(EVENT_HOMEASSISTANT_STOP, stop_zinguo_update_keep_alive)
-    hass.services.register(
-                     DOMAIN, SERVICE_TOGGLE_ZINGUO_SWITCH, toggle_zinguo_switch)
+    hass.services.register(DOMAIN, SERVICE_TOGGLE_ZINGUO_SWITCH, toggle_zinguo_switch)
 
     return True
 
-
 class ZinguoUpdateManager(threading.Thread):
-
-
     def __init__(self, hass, config):
         """Init Zinguo Update Manager."""
         threading.Thread.__init__(self)
         self._run = False
         self._lock = threading.Lock()
-        self._zinguoSwitch = ZinguoSwitchB2(config[DOMAIN][CONF_USERNAME], config[DOMAIN][CONF_PASSWORD])
+        self._zinguoSwitch = ZinguoSwitch(config[DOMAIN][CONF_USERNAME], config[DOMAIN][CONF_PASSWORD])
         self._hass = hass
 
     def run(self):
         while self._run:
             self.zinguo_update()
             _LOGGER.debug('ZINGUO : loop')
-            time.sleep(2)
+            time.sleep(1)
 
     def start_keep_alive(self):
         """Start keep alive mechanism."""
@@ -86,13 +83,12 @@ class ZinguoUpdateManager(threading.Thread):
             self.join()
 
     def zinguo_update(self):
-        _LOGGER.debug('ZINGUO : zinguo_update')
+        _LOGGER.debug('ZINGUO : update0')
         eventMsg = {}
         eventSensorMsg = {}
 
-        success = self._zinguoSwitch.get_status()
-        if not success:
-            return
+        _LOGGER.debug('ZINGUO : update')
+        self._zinguoSwitch.get_status()
         self._zinguoSwitch.get_state_change()
         eventSensorMsg[CONF_TEMPERATURE] = self._zinguoSwitch.temperatureState
         _LOGGER.debug('ZINGUO : sensor msg:%s', json.dumps(eventSensorMsg))
