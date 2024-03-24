@@ -1,203 +1,85 @@
-# _*_ coding: utf-8 _*_
-
-import codecs
+"""
+峥果智能设备控制组件
+"""
 import logging
-import requests
 import hashlib
 import json
-import sys
-from requests import Response
-from custom_components.zinguo.const import *
-from homeassistant.const import (CONF_NAME, CONF_MAC, CONF_TOKEN, CONF_USERNAME)
+import requests
+from homeassistant.const import (
+    CONF_USERNAME,
+    CONF_PASSWORD,
+    CONF_MAC,
+)
+from homeassistant.helpers.entity import ToggleEntity
 
-############################################################################################
-
-############################################################################################
 _LOGGER = logging.getLogger(__name__)
 
+DOMAIN = "zinguo"
 
-class ZinguoSwitchB2():
+def setup_platform(hass, config, add_entities, discovery_info=None):
+    """Set up the Zinguo platform."""
+    username = config[DOMAIN][CONF_USERNAME]
+    password = config[DOMAIN][CONF_PASSWORD]
+    mac_address = config[DOMAIN][CONF_MAC]
 
-    def __init__(self, masterUser, password):
-        self.password = password
-        self.mac = None
-        self.token = None
-        self.masterUser = masterUser
+    zinguo_switch = ZinguoSwitch(username, password, mac_address)
 
-        self.warmingSwitch1StateChange = False
-        self.warmingSwitch2StateChange = False
-        self.windSwitchStateChange = False
-        self.lightSwitchStateChange = False
-        self.ventilationSwitchStateChange = False
+    add_entities([zinguo_switch])
 
-        self.warmingSwitch1StateOld = CONF_OFF
-        self.warmingSwitch2StateOld = CONF_OFF
-        self.windSwitchStateOld = CONF_OFF
-        self.lightSwitchStateOld = CONF_OFF
-        self.ventilationSwitchStateOld = CONF_OFF
+class ZinguoSwitch(ToggleEntity):
+    """Representation of a Zinguo switch."""
 
-        self.warmingSwitch1StateNew = CONF_OFF
-        self.warmingSwitch2StateNew = CONF_OFF
-        self.windSwitchStateNew = CONF_OFF
-        self.lightSwitchStateNew = CONF_OFF
-        self.ventilationSwitchStateNew = CONF_OFF
+    def __init__(self, username, password, mac_address):
+        """Initialize the switch."""
+        self._username = username
+        self._password = password
+        self._mac_address = mac_address
+        self._state = None
 
-        self.temperatureState = '0'
+    @property
+    def name(self):
+        """Return the name of the switch."""
+        return "Zinguo Switch"
 
-        self.login()
+    @property
+    def is_on(self):
+        """Return true if switch is on."""
+        return self._state == "on"
 
+    def turn_on(self, **kwargs):
+        """Turn the switch on."""
+        self._set_switch_state("on")
 
-    def login(self):
-        url = 'http://114.55.66.106:8002/api/v1/customer/login'
-        headers = {'User-Agent': 'okhttp/3.6.0',
-                'Content-Type': 'text/plain;charset=UTF-8',
-                'x-access-token': 'z-mYA09hZzegEq8FwSqL0LlRTB6SZyCvVthZJO05iX7biPWQxNSsBEOTbd0OGFI3'
-                }
+    def turn_off(self, **kwargs):
+        """Turn the switch off."""
+        self._set_switch_state("off")
+
+    def _set_switch_state(self, state):
+        """Update the switch state."""
+        url = "http://iot.zinguo.com/api/v1/wifiyuba/yuBaControl"
+        headers = {
+            "User-Agent": "CFNetwork/1494.0.7 Darwin/23.4.0",
+            "Content-Type": "application/json;charset=UTF-8",
+        }
         sha1 = hashlib.sha1()
-        sha1.update(self.password.encode('utf-8'))
+        sha1.update(self._password.encode("utf-8"))
         hash_pass = sha1.hexdigest()
-        data = {'account': self.masterUser, 'password': hash_pass}
+        data = {
+            "mac": self._mac_address,
+            "switchName": 1 if state == "on" else 0,
+            "turnOffAll": 0,
+            "setParamter": False,
+            "action": False,
+            "masterUser": self._username,
+        }
 
         try:
-            r= requests.post(url, json=data, headers=headers, timeout = 2)
-        except Exception as e:
-            _LOGGER.debug('ZINGUO : login Exception')
-            _LOGGER.debug('ZINGUO : except'+str(e))
-            return False
-
-        json_data = r.json()
-        self.token = json_data['token']
-        self.mac = json_data['deviceIds'][0]['mac']
-
-        return True
-
-    def get_status(self):
-        _LOGGER.debug('ZINGUO : get_status')
-
-        try:
-            url="http://114.55.66.106:8002/api/v1/device/getDeviceByMac?mac=" + self.mac
-            headers = {'User-Agent': 'okhttp/3.6.0',
-                     'Content-Type': 'aplication/json;charset=UTF-8',
-                   'x-access-token': self.token
-                    }
-            r = requests.get(url,headers=headers, timeout = 2)
-        except Exception as e:
-            _LOGGER.debug('ZINGUO : get_status Exception')
-            _LOGGER.debug('ZINGUO : '+str(e))
-            return False
-
-
-        json_data = r.json()
-
-        try:
-            self.warmingSwitch1StateOld = self.warmingSwitch1StateNew
-            self.warmingSwitch2StateOld = self.warmingSwitch2StateNew
-            self.windSwitchStateOld = self.windSwitchStateNew
-            self.lightSwitchStateOld = self.lightSwitchStateNew
-            self.ventilationSwitchStateOld = self.ventilationSwitchStateNew
-
-            self.warmingSwitch1StateNew = json_data[CONF_WARMING_SWITCH_1] #暖风一档
-            self.warmingSwitch2StateNew = json_data[CONF_WARMING_SWITCH_2] #暖风二档
-            self.windSwitchStateNew = json_data[CONF_WIND_SWITCH] #吹风
-            self.lightSwitchStateNew = json_data[CONF_LIGHT_SWITCH]  #照明
-            self.ventilationSwitchStateNew = json_data[CONF_VENTILATION_SWITCH] #排气
-
-            self.temperatureState = json_data[CONF_TEMPERATURE]#温度
-            return True
-        except Exception as e:
-            _LOGGER.debug('ZINGUO : json data Exception')
-            _LOGGER.debug('ZINGUO : json data '+str(e)+':'+str(json_data))
-            return False
-
-    def set_old_state(self,switchName):
-        if switchName == CONF_LIGHT_SWITCH:
-            if self.lightSwitchStateOld == CONF_ON:
-                self.lightSwitchStateOld = CONF_OFF
-            elif self.lightSwitchStateOld == CONF_OFF:
-                self.lightSwitchStateOld = CONF_ON
-
-        if switchName == CONF_WIND_SWITCH:
-            if self.windSwitchStateOld == CONF_ON:
-                self.windSwitchStateOld = CONF_OFF
-            elif self.windSwitchStateOld == CONF_OFF:
-                self.windSwitchStateOld = CONF_ON
-
-        if switchName == CONF_VENTILATION_SWITCH:
-            if self.ventilationSwitchStateOld == CONF_ON:
-                self.ventilationSwitchStateOld = CONF_OFF
-            elif self.ventilationSwitchStateOld == CONF_OFF:
-                self.ventilationSwitchStateOld = CONF_ON
-
-        if switchName == CONF_WARMING_SWITCH_1:
-            if self.warmingSwitch1StateOld == CONF_ON:
-                self.warmingSwitch1StateOld = CONF_OFF
-            elif self.warmingSwitch1StateOld == CONF_OFF:
-                self.warmingSwitch1StateOld = CONF_ON
-
-        if switchName == CONF_WARMING_SWITCH_2:
-            if self.warmingSwitch2StateOld == CONF_ON:
-                self.warmingSwitch2StateOld = CONF_OFF
-            elif self.warmingSwitch2StateOld == CONF_OFF:
-                self.warmingSwitch2StateOld = CONF_ON
-
-
-
-
-    def get_state_change(self):
-        if self.warmingSwitch1StateOld == self.warmingSwitch1StateNew:
-            self.warmingSwitch1StateChange = False
-        else:
-            self.warmingSwitch1StateChange = True
-
-        if self.warmingSwitch2StateOld == self.warmingSwitch2StateNew:
-            self.warmingSwitch2StateChange = False
-        else:
-            self.warmingSwitch2StateChange = True
-
-        if self.windSwitchStateOld == self.windSwitchStateNew:
-            self.windSwitchStateChange = False
-        else:
-            self.windSwitchStateChange = True
-
-        if self.lightSwitchStateOld == self.lightSwitchStateNew:
-            self.lightSwitchStateChange = False
-        else:
-            self.lightSwitchStateChange = True
-
-        if self.ventilationSwitchStateOld == self.ventilationSwitchStateNew:
-            self.ventilationSwitchStateChange = False
-        else:
-            self.ventilationSwitchStateChange = True
-
-    def toggle_zinguo_switch(self, switchName):
-        url = "http://114.55.66.106:8002/api/v1/wifiyuba/yuBaControl"
-        headers = {'User-Agent': 'okhttp/3.6.0' ,
-                  'Content-Type':'aplication/json;charset=UTF-8',
-                  'x-access-token':self.token
-                  }
-        data = {"mac":self.mac,
-                switchName:1,
-                "turnOffAll":0,
-                "setParamter":False,
-                "action":False,
-                "masterUser":self.masterUser}
-
-        try:
-            r = requests.put(url, json=data, headers=headers, timeout = 2)
-        except Exception as e:
-            _LOGGER.debug('ZINGUO toggle_zinguo_switch Exception')
-            _LOGGER.debug('ZINGUO toggle_zinguo_switch'+str(e))
-            return False
-
-
-        json_data = r.json()
-        try:
-            result = json_data['result']
-            if result != "设置成功":
-                self.set_old_state(switchName)
-                return True
-        except Exception as e:
-            _LOGGER.debug('ZINGUO toggle_zinguo_switch return:'+str(e))
-            return False
-
-############################################################################################
+            response = requests.put(url, json=data, headers=headers, timeout=2)
+            response.raise_for_status()
+            result = response.json().get("result")
+            if result == "设置成功":
+                self._state = state
+            else:
+                _LOGGER.error("Failed to set switch state")
+        except requests.exceptions.RequestException as ex:
+            _LOGGER.error("Error communicating with Zinguo API: %s", ex)
