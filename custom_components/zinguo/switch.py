@@ -2,49 +2,44 @@
 Zinguo platform for switches
 """
 import json
-import time
-import asyncio
-from homeassistant.components.switch import (SwitchDevice,ENTITY_ID_FORMAT, PLATFORM_SCHEMA)
-from homeassistant.helpers.dispatcher import (dispatcher_connect, dispatcher_send)
-from homeassistant.const import (CONF_NAME, CONF_MAC, CONF_TOKEN, CONF_USERNAME)
-import homeassistant.helpers.config_validation as cv
-from custom_components.zinguo.const import *
-import voluptuous as vol
-from homeassistant.util import  slugify
 import logging
-
+import voluptuous as vol
+import homeassistant.helpers.config_validation as cv
+from homeassistant.components.switch import PLATFORM_SCHEMA, SwitchEntity
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.const import CONF_NAME, CONF_MAC, CONF_TOKEN, CONF_USERNAME, ATTR_NAME
+from custom_components.zinguo.const import *
 
 _LOGGER = logging.getLogger(__name__)
 
-deviceType = [CONF_WARMING_SWITCH_1,
-        CONF_WARMING_SWITCH_2,
-        CONF_WIND_SWITCH,
-        CONF_LIGHT_SWITCH,
-        CONF_VENTILATION_SWITCH]
+deviceType = [
+    CONF_WARMING_SWITCH_1,
+    CONF_WARMING_SWITCH_2,
+    CONF_WIND_SWITCH,
+    CONF_LIGHT_SWITCH,
+    CONF_VENTILATION_SWITCH,
+]
 
-def setup_platform(hass, config, add_devices, discovery_info=None):
-    """Set up the ZiGate switchs."""
+PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
+    vol.Required(devType): cv.string for devType in deviceType
+})
+
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+    """Set up the ZiGate switches."""
     devices = []
-    for devType in deviceType:
-        devices.append(ZinguoSwitch(hass, config.get(devType), devType))
+    for devType, name in config.items():
+        devices.append(ZinguoSwitch(hass, name, devType))
 
-    add_devices(devices)
+    async_add_entities(devices)
 
-
-class ZinguoSwitch(SwitchDevice):
+class ZinguoSwitch(SwitchEntity):
     def __init__(self, hass, name, devType):
         """Initialize the switch."""
-        self._hass = hass
-        self.entity_id = ENTITY_ID_FORMAT.format(slugify(devType))
+        self.entity_id = f"switch.{slugify(name)}"
         self._name = name
         self._type = devType
         self._state = False
-        self._attributes = {}
-        hass.bus.listen(CONF_EVENT_ZINGUO_STATE_CHANGE, self._handle_event)
-
-    @property
-    def should_poll(self):
-        return False
+        self._hass = hass
 
     @property
     def name(self):
@@ -52,48 +47,39 @@ class ZinguoSwitch(SwitchDevice):
         return self._name
 
     @property
-    def state_attributes(self):
-        """Return the state attributes."""
-        return self._attributes
-
-    @property
     def is_on(self):
         """Return true if switch is on."""
         return self._state
 
-    def turn_on(self, **kwargs):
+    async def async_turn_on(self, **kwargs):
         """Turn the switch on."""
-        if self.is_on is False:
-            ret = self._hass.services.call(DOMAIN,SERVICE_TOGGLE_ZINGUO_SWITCH, {"name":self._type})
-            if ret is True:
-                self._state = True
-                _LOGGER.debug('ZINGUO : turn on')
-                self.schedule_update_ha_state()
+        await self._call_toggle_service(True)
 
-    def turn_off(self, **kwargs):
-        """Turn the device off."""
-        if self.is_on is True:
-            ret = self._hass.services.call(DOMAIN,SERVICE_TOGGLE_ZINGUO_SWITCH, {"name":self._type})
-            if ret is True:
-                self._state = False
-                _LOGGER.debug('ZINGUO : turn off')
-                self.schedule_update_ha_state()
-    def _handle_event(self, event):
-        """eventMsg = json.loads(event.data)"""
+
+    async def async_turn_off(self, **kwargs):
+        """Turn the switch off."""
+        await self._call_toggle_service(False)
+
+    async def _call_toggle_service(self, turn_on):
+        """Call toggle service."""
+        service_data = {"name": self._type}
+        if turn_on:
+            service = SERVICE_TOGGLE_ZINGUO_SWITCH
+        else:
+            service = SERVICE_TOGGLE_ZINGUO_SWITCH
+
+        await self._hass.services.async_call(DOMAIN, service, service_data)
+
+    async def async_added_to_hass(self):
+        """Subscribe to updates."""
+        async_dispatcher_connect(self._hass, CONF_EVENT_ZINGUO_STATE_CHANGE, self._handle_event)
+
+    async def _handle_event(self, event):
+        """Handle incoming events."""
         eventMsg = event.data
-        _LOGGER.debug('ZINGUO : handle event start')
         if self._type in eventMsg:
-            _LOGGER.debug('ZINGUO : handle event %s' ,eventMsg[self._type])
-            _LOGGER.debug('ZINGUO : handle event %s', event)
-            if CONF_ON == eventMsg[self._type]:
+            if eventMsg[self._type] == CONF_ON:
                 self._state = True
-                _LOGGER.debug('ZINGUO : ON_STATE')
-                self.schedule_update_ha_state()
-            elif  CONF_OFF == eventMsg[self._type]:
+            elif eventMsg[self._type] == CONF_OFF:
                 self._state = False
-                _LOGGER.debug('ZINGUO : OFF_STATE')
-                self.schedule_update_ha_state()
-            else:
-                _LOGGER.debug('ZINGUO : handle event something goes wrong')
-
-
+            self.async_write_ha_state()
