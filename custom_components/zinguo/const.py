@@ -1,5 +1,4 @@
-#const for zinguo
-
+# const for zinguo
 
 CONF_EVENT_ZINGUO_STATE_CHANGE = 'zinguo_state_change'
 CONF_EVENT_ZINGUO_SENSOR = 'zinguo_sensor'
