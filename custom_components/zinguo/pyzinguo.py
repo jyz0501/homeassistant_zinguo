@@ -1,85 +1,98 @@
-"""
-峥果智能设备控制组件
-"""
-import logging
-import hashlib
-import json
-import requests
-from homeassistant.const import (
-    CONF_USERNAME,
-    CONF_PASSWORD,
-    CONF_MAC,
-)
-from homeassistant.helpers.entity import ToggleEntity
+"""Platform for switch integration."""
+from typing import Any
 
-_LOGGER = logging.getLogger(__name__)
+from homeassistant.components.switch import SwitchEntity
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-DOMAIN = "zinguo"
+from .const import DOMAIN, SWITCH_TYPES
+from .coordinator import ZinguoDataUpdateCoordinator
 
-def setup_platform(hass, config, add_entities, discovery_info=None):
-    """Set up the Zinguo platform."""
-    username = config[DOMAIN][CONF_USERNAME]
-    password = config[DOMAIN][CONF_PASSWORD]
-    mac_address = config[DOMAIN][CONF_MAC]
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up Zinguo switches based on a config entry."""
+    coordinator: ZinguoDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    
+    switches = []
+    for switch_type, switch_info in SWITCH_TYPES.items():
+        switches.append(
+            ZinguoSwitch(coordinator, switch_type, switch_info["name"], switch_info["key"], switch_info["icon"])
+        )
+    
+    async_add_entities(switches, True)
 
-    zinguo_switch = ZinguoSwitch(username, password, mac_address)
-
-    add_entities([zinguo_switch])
-
-class ZinguoSwitch(ToggleEntity):
+class ZinguoSwitch(SwitchEntity):
     """Representation of a Zinguo switch."""
-
-    def __init__(self, username, password, mac_address):
+    
+    def __init__(self, coordinator, switch_type, name, key, icon):
         """Initialize the switch."""
-        self._username = username
-        self._password = password
-        self._mac_address = mac_address
-        self._state = None
-
-    @property
-    def name(self):
-        """Return the name of the switch."""
-        return "Zinguo Switch"
-
+        self._coordinator = coordinator
+        self._switch_type = switch_type
+        self._attr_name = f"{coordinator.name} {name}"
+        self._attr_unique_id = f"{coordinator.mac}_{switch_type}"
+        self._attr_icon = icon
+        self._key = key
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, coordinator.mac)},
+            "name": coordinator.name,
+            "manufacturer": "Zinguo",
+            "model": "Smart Bathroom Fan",
+        }
+    
     @property
     def is_on(self):
         """Return true if switch is on."""
-        return self._state == "on"
-
-    def turn_on(self, **kwargs):
+        if self._coordinator.data:
+            return self._coordinator.data.get(self._key) == 1
+        return False
+    
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
-        self._set_switch_state("on")
-
-    def turn_off(self, **kwargs):
+        payload = {self._key: 1}
+        if self._switch_type in ["heater1", "heater2"]:
+            # Heaters need wind on
+            payload["windSwitch"] = 1
+        elif self._switch_type == "wind":
+            # Turn off heaters when wind only
+            payload["warmingSwitch1"] = 0
+            payload["warmingSwitch2"] = 0
+        
+        await self._coordinator.send_control_command(payload)
+    
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
-        self._set_switch_state("off")
-
-    def _set_switch_state(self, state):
-        """Update the switch state."""
-        url = "http://iot.zinguo.com/api/v1/wifiyuba/yuBaControl"
-        headers = {
-            "User-Agent": "CFNetwork/1494.0.7 Darwin/23.4.0",
-            "Content-Type": "application/json;charset=UTF-8",
-        }
-        sha1 = hashlib.sha1()
-        sha1.update(self._password.encode("utf-8"))
-        hash_pass = sha1.hexdigest()
-        data = {
-            "mac": self._mac_address,
-            "switchName": 1 if state == "on" else 0,
-            "turnOffAll": 0,
-            "setParamter": False,
-            "action": False,
-            "masterUser": self._username,
-        }
-
-        try:
-            response = requests.put(url, json=data, headers=headers, timeout=2)
-            response.raise_for_status()
-            result = response.json().get("result")
-            if result == "设置成功":
-                self._state = state
-            else:
-                _LOGGER.error("Failed to set switch state")
-        except requests.exceptions.RequestException as ex:
-            _LOGGER.error("Error communicating with Zinguo API: %s", ex)
+        payload = {self._key: 0}
+        
+        # Special handling for heaters
+        if self._switch_type in ["heater1", "heater2"]:
+            # Check if both heaters are off, then turn off wind
+            current_data = self._coordinator.data
+            if current_data:
+                heater1_on = current_data.get("warmingSwitch1") == 1
+                heater2_on = current_data.get("warmingSwitch2") == 1
+                
+                if self._switch_type == "heater1" and not heater2_on:
+                    payload["windSwitch"] = 0
+                elif self._switch_type == "heater2" and not heater1_on:
+                    payload["windSwitch"] = 0
+        
+        await self._coordinator.send_control_command(payload)
+    
+    @property
+    def available(self):
+        """Return if entity is available."""
+        return self._coordinator.data is not None
+    
+    async def async_added_to_hass(self):
+        """When entity is added to hass."""
+        self.async_on_remove(
+            self._coordinator.async_add_listener(self.async_write_ha_state)
+        )
+    
+    async def async_update(self):
+        """Update the entity."""
+        await self._coordinator.async_request_refresh()
