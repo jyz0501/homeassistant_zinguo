@@ -1,114 +1,171 @@
-"""
-Support for ZINGUO
-"""
-
+"""The Zinguo integration."""
 import asyncio
-import threading
-import time
 import logging
-import json
-from custom_components.zinguo.pyzinguo import *
-import requests
+from datetime import timedelta
 
-from homeassistant.const import (
-    EVENT_HOMEASSISTANT_START, EVENT_HOMEASSISTANT_STOP
+import aiohttp
+import async_timeout
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+
+from .const import (
+    CONF_ACCOUNT, 
+    CONF_MAC,
+    CONF_NAME,
+    DOMAIN,
+    LOGIN_URL,
+    DEVICES_URL,
+    CONTROL_URL,
+    SWITCH_TYPES
 )
-import homeassistant.helpers.config_validation as cv
-from homeassistant.const import (
-    CONF_NAME, CONF_MAC, CONF_TOKEN, CONF_USERNAME, CONF_PASSWORD, ATTR_NAME
-)
-from custom_components.zinguo.const import *
-
-try:
-    # Valid since HomeAssistant 0.66+
-    from homeassistant.util import async_ as hasync
-except ImportError:
-    # backwards compatibility, with workaround to avoid reserved word "async"
-    # from homeassistant.util import async as hasync  # <- invalid syntax in Python 3.7
-    import importlib
-    hasync = importlib.import_module("homeassistant.util.async")
-
-
-COMPONENT_TYPES = ('switch')
 
 _LOGGER = logging.getLogger(__name__)
 
-def setup(hass, config):
-    """ Setup the ZINGUO platform """
+PLATFORMS = ["switch", "fan", "sensor"]
 
-    _LOGGER.debug('ZINGUO : Starting')
-
-    hass.data[ZINGUO_UPDATE_MANAGER] = ZinguoUpdateManager(hass=hass, config=config)
-
-    def start_zinguo_update_keep_alive(event):
-        hass.data[ZINGUO_UPDATE_MANAGER].start_keep_alive()
-
-    def stop_zinguo_update_keep_alive(event):
-        hass.data[ZINGUO_UPDATE_MANAGER].stop_keep_alive()
-
-    def toggle_zinguo_switch(call):
-        hass.data[ZINGUO_UPDATE_MANAGER]._zinguoSwitch.toggle_zinguo_switch(call.data.get(ATTR_NAME))
-
-    hass.bus.listen_once(EVENT_HOMEASSISTANT_START, start_zinguo_update_keep_alive)
-    hass.bus.listen_once(EVENT_HOMEASSISTANT_STOP, stop_zinguo_update_keep_alive)
-    hass.services.register(DOMAIN, SERVICE_TOGGLE_ZINGUO_SWITCH, toggle_zinguo_switch)
-
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Zinguo from a config entry."""
+    
+    account = entry.data[CONF_ACCOUNT]
+    password = entry.data[CONF_PASSWORD]
+    mac = entry.data[CONF_MAC]
+    name = entry.data.get(CONF_NAME, "Zinguo Bathroom Fan")
+    
+    coordinator = ZinguoDataUpdateCoordinator(
+        hass, account, password, mac, name
+    )
+    
+    await coordinator.async_config_entry_first_refresh()
+    
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN][entry.entry_id] = coordinator
+    
+    for platform in PLATFORMS:
+        hass.async_create_task(
+            hass.config_entries.async_forward_entry_setup(entry, platform)
+        )
+    
     return True
 
-class ZinguoUpdateManager(threading.Thread):
-    def __init__(self, hass, config):
-        """Init Zinguo Update Manager."""
-        threading.Thread.__init__(self)
-        self._run = False
-        self._lock = threading.Lock()
-        self._zinguoSwitch = ZinguoSwitch(config[DOMAIN][CONF_USERNAME], config[DOMAIN][CONF_PASSWORD])
-        self._hass = hass
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    unload_ok = all(
+        await asyncio.gather(
+            *[
+                hass.config_entries.async_forward_entry_unload(entry, platform)
+                for platform in PLATFORMS
+            ]
+        )
+    )
+    
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id)
+    
+    return unload_ok
 
-    def run(self):
-        while self._run:
-            self.zinguo_update()
-            _LOGGER.debug('ZINGUO : loop')
-            time.sleep(1)
-
-    def start_keep_alive(self):
-        """Start keep alive mechanism."""
-        with self._lock:
-            self._run = True
-            threading.Thread.start(self)
-
-    def stop_keep_alive(self):
-        """Stop keep alive mechanism."""
-        with self._lock:
-            self._run = False
-            self.join()
-
-    def zinguo_update(self):
-        _LOGGER.debug('ZINGUO : update0')
-        eventMsg = {}
-        eventSensorMsg = {}
-
-        _LOGGER.debug('ZINGUO : update')
-        self._zinguoSwitch.get_status()
-        self._zinguoSwitch.get_state_change()
-        eventSensorMsg[CONF_TEMPERATURE] = self._zinguoSwitch.temperatureState
-        _LOGGER.debug('ZINGUO : sensor msg:%s', json.dumps(eventSensorMsg))
-        self._hass.bus.fire(CONF_EVENT_ZINGUO_SENSOR,eventSensorMsg)
-        if self._zinguoSwitch.warmingSwitch1StateChange or \
-                self._zinguoSwitch.warmingSwitch2StateChange or \
-                self._zinguoSwitch.windSwitchStateChange or \
-                self._zinguoSwitch.lightSwitchStateChange or \
-                self._zinguoSwitch.ventilationSwitchStateChange:
-            _LOGGER.debug('ZINGUO : event fire')
-            if True == self._zinguoSwitch.warmingSwitch1StateChange:
-                eventMsg[CONF_WARMING_SWITCH_1] =  self._zinguoSwitch.warmingSwitch1StateNew
-            if True == self._zinguoSwitch.warmingSwitch2StateChange:
-                eventMsg[CONF_WARMING_SWITCH_2] = self._zinguoSwitch.warmingSwitch2StateNew
-            if True == self._zinguoSwitch.windSwitchStateChange:
-                eventMsg[CONF_WIND_SWITCH] = self._zinguoSwitch.windSwitchStateNew
-            if True == self._zinguoSwitch.lightSwitchStateChange:
-                eventMsg[CONF_LIGHT_SWITCH] = self._zinguoSwitch.lightSwitchStateNew
-            eventMsg[CONF_VENTILATION_SWITCH] = self._zinguoSwitch.ventilationSwitchStateNew
-            _LOGGER.debug('ZINGUO : event msg:%s', json.dumps(eventMsg))
-            self._hass.bus.fire(CONF_EVENT_ZINGUO_STATE_CHANGE,eventMsg)
-        else:
-            _LOGGER.debug('ZINGUO : event not fire')
+class ZinguoDataUpdateCoordinator(DataUpdateCoordinator):
+    """Class to manage fetching Zinguo data."""
+    
+    def __init__(self, hass, account, password, mac, name):
+        """Initialize."""
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=name,
+            update_interval=timedelta(seconds=300),
+        )
+        self.account = account
+        self.password = password
+        self.mac = mac
+        self.token = None
+        
+    async def _async_update_data(self):
+        """Update data via API."""
+        try:
+            async with async_timeout.timeout(30):
+                # Login if needed
+                if not self.token:
+                    await self._login()
+                
+                # Get device status
+                return await self._get_device_status()
+                
+        except Exception as err:
+            _LOGGER.error("Error updating Zinguo data: %s", err)
+            # Try to re-login on error
+            self.token = None
+            raise UpdateFailed(f"Error communicating with API: {err}")
+    
+    async def _login(self):
+        """Login to Zinguo API."""
+        payload = {
+            "account": self.account,
+            "password": self.password
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(LOGIN_URL, json=payload) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    self.token = data.get("token")
+                    if not self.token:
+                        raise Exception("Login failed: No token received")
+                    _LOGGER.debug("Login successful")
+                else:
+                    raise Exception(f"Login failed: {response.status}")
+    
+    async def _get_device_status(self):
+        """Get device status from API."""
+        headers = {"x-access-token": self.token}
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(DEVICES_URL, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    # Find our device by MAC
+                    for device in data:
+                        if device.get("mac") == self.mac:
+                            return device
+                    raise Exception(f"Device with MAC {self.mac} not found")
+                elif response.status == 401:
+                    # Token expired, re-login
+                    self.token = None
+                    await self._login()
+                    return await self._get_device_status()
+                else:
+                    raise Exception(f"Failed to get device status: {response.status}")
+    
+    async def send_control_command(self, payload):
+        """Send control command to device."""
+        if not self.token:
+            await self._login()
+        
+        headers = {
+            "x-access-token": self.token,
+            "Content-Type": "application/json"
+        }
+        
+        # Add common fields to payload
+        control_payload = {
+            "mac": self.mac,
+            "masterUser": self.account,
+            "setParamter": False,
+            "action": False,
+            **payload
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.put(CONTROL_URL, json=control_payload, headers=headers) as response:
+                if response.status == 200:
+                    # Force immediate update
+                    await self.async_request_refresh()
+                    return True
+                elif response.status == 401:
+                    # Token expired, re-login and retry
+                    self.token = None
+                    await self._login()
+                    return await self.send_control_command(payload)
+                else:
+                    raise Exception(f"Control command failed: {response.status}")
