@@ -1,0 +1,16 @@
+name: "Zinguo Bathroom Fan"
+version: "1.0.0"
+slug: "zinguo_bathroom_fan"
+description: "Zinguo Smart Bathroom Fan Integration"
+arch:
+  - armhf
+  - armv7
+  - aarch64
+  - amd64
+  - i386
+startup: "application"
+boot: "auto"
+host_network: false
+options: {}
+schema: {}
+image: "ghcr.io/jyz_0501/zinguo_bathroom_fan-{arch}"
