@@ -1,18 +1,36 @@
-# const for zinguo
+"""Constants for Zinguo integration."""
 
-CONF_EVENT_ZINGUO_STATE_CHANGE = 'zinguo_state_change'
-CONF_EVENT_ZINGUO_SENSOR = 'zinguo_sensor'
-CONF_ON = 1
-CONF_OFF = 2
-CONF_WARMING_SWITCH_1 = 'warmingSwitch1'
-CONF_WARMING_SWITCH_2 = 'warmingSwitch2'
-CONF_WIND_SWITCH = 'windSwitch'
-CONF_LIGHT_SWITCH = 'lightSwitch'
-CONF_VENTILATION_SWITCH = 'ventilationSwitch'
-CONF_TEMPERATURE = 'temperature'
+DOMAIN = "zinguo"
+CONF_ACCOUNT = "account"
+CONF_PASSWORD = "password"
+CONF_MAC = "mac"
+CONF_NAME = "name"
 
-SERVICE_TOGGLE_ZINGUO_SWITCH = 'toggleZinguoSwitch'
+BASE_URL = "https://iot.zinguo.com/api/v1"
 
-ZINGUO_UPDATE_MANAGER = 'ZINGUO_UPDATE_MNG'
+# API endpoints
+LOGIN_URL = f"{BASE_URL}/customer/login"
+DEVICES_URL = f"{BASE_URL}/customer/devices"
+CONTROL_URL = f"{BASE_URL}/wifiyuba/yuBaControl"
 
-DOMAIN = 'zinguo'
+# Switch types
+SWITCH_TYPES = {
+    "light": {"name": "Light", "key": "lightSwitch", "icon": "mdi:lightbulb"},
+    "ventilation": {"name": "Ventilation", "key": "ventilationSwitch", "icon": "mdi:air-filter"},
+    "wind": {"name": "Wind", "key": "windSwitch", "icon": "mdi:fan"},
+    "heater1": {"name": "Heater 1", "key": "warmingSwitch1", "icon": "mdi:radiator"},
+    "heater2": {"name": "Heater 2", "key": "warmingSwitch2", "icon": "mdi:radiator"},
+}
+
+# Fan presets
+PRESET_MODE_OFF = "off"
+PRESET_MODE_COOL = "cool"
+PRESET_MODE_HEAT_LOW = "heat_low"
+PRESET_MODE_HEAT_HIGH = "heat_high"
+
+PRESET_MODES = [
+    PRESET_MODE_OFF,
+    PRESET_MODE_COOL,
+    PRESET_MODE_HEAT_LOW,
+    PRESET_MODE_HEAT_HIGH
+]
