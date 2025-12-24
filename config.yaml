@@ -13,4 +13,4 @@ boot: "auto"
 host_network: false
 options: {}
 schema: {}
-image: "ghcr.io/jyz_0501/zinguo_bathroom_fan-{arch}"
+image: "ghcr.io/jyz0501/zinguo_bathroom_fan-{arch}"
